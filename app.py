@@ -1,6 +1,6 @@
 import os
-import sqlite3
 import requests
+import psycopg2
 from flask import Flask, request, jsonify
 from dotenv import load_dotenv
 
@@ -9,7 +9,7 @@ load_dotenv()
 app = Flask(__name__)
 
 RECAPTCHA_SECRET = os.getenv('RECAPTCHA_SECRET_KEY', '')
-ALLOWED_ORIGINS = ['https://thunderous-raindrop-7b846f.netlify.app', 'http://localhost:3000', 'http://localhost:5500']
+DATABASE_URL = os.getenv('DATABASE_URL', '')
 
 TEMP_EMAIL_DOMAINS = [
     'mailinator.com', 'tempmail.org', '10minutemail.com', 'guerrillamail.com',
@@ -30,20 +30,6 @@ TEMP_EMAIL_DOMAINS = [
 ]
 
 ALLOWED_INTERESTS = ['Collector', 'Commission', 'Art Decks', 'AI Services', 'General']
-
-
-def init_db():
-    conn = sqlite3.connect('signups.db')
-    c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS signups (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        email TEXT NOT NULL UNIQUE,
-        interest TEXT NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )''')
-    conn.commit()
-    conn.close()
 
 
 def cors_response(data, status=200):
@@ -115,21 +101,24 @@ def signup():
     except:
         return cors_response({'success': False, 'message': 'reCAPTCHA verification error.'}, 500)
 
-    # Store in database
+    # Store in Supabase
     try:
-        conn = sqlite3.connect('signups.db')
+        conn = psycopg2.connect(DATABASE_URL)
         c = conn.cursor()
-        c.execute('INSERT INTO signups (name, email, interest) VALUES (?, ?, ?)', (name, email, interest))
+        c.execute(
+            'INSERT INTO signups (name, email, interest) VALUES (%s, %s, %s)',
+            (name, email, interest)
+        )
         conn.commit()
         conn.close()
-    except sqlite3.IntegrityError:
+    except psycopg2.errors.UniqueViolation:
         return cors_response({'success': False, 'message': 'This email is already subscribed.'}, 400)
-    except:
+    except Exception as e:
+        print(f'Database error: {str(e)}')
         return cors_response({'success': False, 'message': 'Database error.'}, 500)
 
     return cors_response({'success': True, 'message': 'Thank you. You are on the list.'})
 
 
 if __name__ == '__main__':
-    init_db()
     app.run(debug=True, port=5000)
